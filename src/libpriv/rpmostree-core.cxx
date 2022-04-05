@@ -3900,6 +3900,7 @@ deployment_refresh_selinux_policy (int deployment_dfd, GError **error)
 {
   struct stat stbuf;
 
+  g_print("DEBUG: deployment_refresh_selinux_policy()\n");
   if (!glnx_fstatat_allow_noent (deployment_dfd, "etc/selinux/config", &stbuf,
                                  AT_SYMLINK_NOFOLLOW, error))
     return FALSE;
@@ -3907,6 +3908,8 @@ deployment_refresh_selinux_policy (int deployment_dfd, GError **error)
   /* Skip the SELinux policy refresh if /etc/selinux/config doesn't exist. */
   if (errno != 0)
     return TRUE;
+
+  g_print("DEBUG: running semodule --help...\n");
 
   rust::Vec semodule_help_argv = {
     rust::String ("semodule"), rust::String ("--help"),
@@ -3918,6 +3921,8 @@ deployment_refresh_selinux_policy (int deployment_dfd, GError **error)
   if (!strstr((const char *)output.data (), "--rebuild-if-modules-changed"))
     return TRUE;
 
+  g_print("DEBUG: running semodule --rebuild-if-modules-changed...\n");
+
   rust::Vec semodule_rebuild_argv = {
     rust::String ("semodule"), rust::String ("-N"),
     rust::String ("--rebuild-if-modules-changed"),
@@ -3925,6 +3930,7 @@ deployment_refresh_selinux_policy (int deployment_dfd, GError **error)
   ROSCXX_TRY (bubblewrap_run_sync (deployment_dfd, semodule_rebuild_argv,
                                    false, true /*???*/),
               error);
+  g_print("DEBUG: done!\n");
   return TRUE;
 }
 

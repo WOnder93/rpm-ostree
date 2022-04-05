@@ -3875,6 +3875,45 @@ ensure_tmprootfs_dfd (RpmOstreeContext *self, GError **error)
   return TRUE;
 }
 
+static gboolean
+deployment_refresh_selinux_policy (int deployment_dfd, GError **error)
+{
+  struct stat stbuf;
+
+  g_print("DEBUG: deployment_refresh_selinux_policy()\n");
+  if (!glnx_fstatat_allow_noent (deployment_dfd, "etc/selinux/config", &stbuf,
+                                 AT_SYMLINK_NOFOLLOW, error))
+    return FALSE;
+
+  /* Skip the SELinux policy refresh if /etc/selinux/config doesn't exist. */
+  if (errno != 0)
+    return TRUE;
+
+  g_print("DEBUG: running semodule --help...\n");
+
+  rust::Vec semodule_help_argv = {
+    rust::String ("semodule"), rust::String ("--help"),
+  };
+  auto output = ROSCXX_TRY_VAL (bubblewrap_run_sync (deployment_dfd,
+                                                     semodule_help_argv, true,
+                                                     true /*???*/),
+                                error);
+  if (!strstr((const char *)output.data (), "--rebuild-if-modules-changed"))
+    return TRUE;
+
+  g_print("DEBUG: running semodule --rebuild-if-modules-changed...\n");
+
+  rust::Vec semodule_rebuild_argv = {
+    rust::String ("semodule"), rust::String ("-N"),
+    rust::String ("--rebuild-if-modules-changed"),
+  };
+  ROSCXX_TRY (bubblewrap_run_sync (deployment_dfd, semodule_rebuild_argv,
+                                   false, true /*???*/),
+              error);
+  g_print("DEBUG: done!\n");
+  return TRUE;
+}
+
 gboolean
 rpmostree_context_assemble (RpmOstreeContext *self, GCancellable *cancellable, GError **error)
 {
@@ -4308,6 +4347,9 @@ rpmostree_context_assemble (RpmOstreeContext *self, GCancellable *cancellable, G
       if (!rpmostree_deployment_sanitycheck_true (tmprootfs_dfd, cancellable, error))
         return FALSE;
     }
+
+  if (!deployment_refresh_selinux_policy(tmprootfs_dfd, error))
+    return FALSE;
 
   /* Undo the /etc move above */
   CXX_TRY (etc_guard->undo (), error);
